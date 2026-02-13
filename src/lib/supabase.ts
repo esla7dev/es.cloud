@@ -160,6 +160,7 @@ export type Database = {
           last_action_at: string | null;
           mrr_value: number | null;
           one_time_deal_value: number | null;
+          product_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -171,6 +172,7 @@ export type Database = {
           last_action_at?: string;
           mrr_value?: number;
           one_time_deal_value?: number;
+          product_id?: string;
         };
         Update: {
           status?: string;
@@ -178,36 +180,37 @@ export type Database = {
           last_action_at?: string;
           mrr_value?: number;
           one_time_deal_value?: number;
+          product_id?: string;
           updated_at?: string;
         };
       };
-    };
-    message_templates: {
-      Row: {
-        id: string;
-        user_id: string;
-        name: string;
-        type: 'offer' | 'follow_up';
-        subject: string;
-        content: string;
-        is_default: boolean;
-        created_at: string;
-        updated_at: string;
-      };
-      Insert: {
-        user_id: string;
-        name: string;
-        type: 'offer' | 'follow_up';
-        subject: string;
-        content: string;
-        is_default?: boolean;
-      };
-      Update: {
-        name?: string;
-        subject?: string;
-        content?: string;
-        is_default?: boolean;
-        updated_at?: string;
+      message_templates: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          type: 'offer' | 'follow_up';
+          subject: string;
+          content: string;
+          is_default: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          name: string;
+          type: 'offer' | 'follow_up';
+          subject: string;
+          content: string;
+          is_default?: boolean;
+        };
+        Update: {
+          name?: string;
+          subject?: string;
+          content?: string;
+          is_default?: boolean;
+          updated_at?: string;
+        };
       };
       products: {
         Row: {
@@ -216,14 +219,143 @@ export type Database = {
           description: string | null;
           price_credits: number;
           type: string;
+          category: 'web_dev' | 'marketing' | 'arch_studio';
+          image_url: string | null;
+          features: string[];
+          is_active: boolean;
+          display_order: number;
+          price_display: string | null;
+          tier: 'basic' | 'pro' | 'enterprise';
           created_at: string;
           updated_at: string;
           created_by: string | null;
         };
         Insert: {
           name: string;
+          description?: string;
+          price_credits?: number;
+          type: string;
+          category?: 'web_dev' | 'marketing' | 'arch_studio';
+          image_url?: string;
+          features?: string[];
+          is_active?: boolean;
+          display_order?: number;
+          price_display?: string;
+          tier?: 'basic' | 'pro' | 'enterprise';
+          created_by?: string;
         };
-      }
-    }
+        Update: {
+          name?: string;
+          description?: string;
+          price_credits?: number;
+          type?: string;
+          category?: 'web_dev' | 'marketing' | 'arch_studio';
+          image_url?: string;
+          features?: string[];
+          is_active?: boolean;
+          display_order?: number;
+          price_display?: string;
+          tier?: 'basic' | 'pro' | 'enterprise';
+          updated_at?: string;
+        };
+      };
+      business_notes: {
+        Row: {
+          id: string;
+          business_result_id: string;
+          user_id: string;
+          note: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          business_result_id: string;
+          user_id: string;
+          note: string;
+        };
+        Update: {
+          note?: string;
+          updated_at?: string;
+        };
+      };
+      business_tags: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          color: string;
+          created_at: string;
+        };
+        Insert: {
+          user_id: string;
+          name: string;
+          color?: string;
+        };
+        Update: {
+          name?: string;
+          color?: string;
+        };
+      };
+      business_result_tags: {
+        Row: {
+          id: string;
+          business_result_id: string;
+          tag_id: string;
+          created_at: string;
+        };
+        Insert: {
+          business_result_id: string;
+          tag_id: string;
+        };
+        Update: {};
+      };
+      tasks: {
+        Row: {
+          id: string;
+          user_id: string;
+          interaction_id: string | null;
+          title: string;
+          description: string | null;
+          due_date: string | null;
+          completed: boolean;
+          priority: 'low' | 'medium' | 'high';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          title: string;
+          interaction_id?: string;
+          description?: string;
+          due_date?: string;
+          priority?: 'low' | 'medium' | 'high';
+        };
+        Update: {
+          title?: string;
+          description?: string;
+          due_date?: string;
+          completed?: boolean;
+          priority?: 'low' | 'medium' | 'high';
+          updated_at?: string;
+        };
+      };
+      interaction_status_history: {
+        Row: {
+          id: string;
+          interaction_id: string;
+          old_status: string | null;
+          new_status: string;
+          changed_at: string;
+          changed_by: string | null;
+        };
+        Insert: {
+          interaction_id: string;
+          old_status?: string;
+          new_status: string;
+          changed_by?: string;
+        };
+        Update: {};
+      };
+    };
   }
 }

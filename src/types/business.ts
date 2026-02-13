@@ -90,9 +90,11 @@ export interface CampaignBusinessInteraction {
   last_action_at: string | null;
   mrr_value: number | null;
   one_time_deal_value: number | null;
+  product_id: string | null;
   created_at: string;
   updated_at: string;
   business_result?: SearchResult;
+  product?: Product;
 }
 
 export interface CampaignWithInteractions extends Campaign {
@@ -124,6 +126,13 @@ export interface Product {
   description: string | null;
   price_credits: number;
   type: string;
+  category: 'web_dev' | 'marketing' | 'arch_studio';
+  image_url: string | null;
+  features: string[];
+  is_active: boolean;
+  display_order: number;
+  price_display: string | null;
+  tier: 'basic' | 'pro' | 'enterprise';
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -203,6 +212,19 @@ export interface CampaignRevenue {
   avg_mrr: number;
   avg_deal_value: number;
   conversion_rate: number;
+  last_activity_at: string | null;
+}
+
+export interface ProductRevenueData {
+  product_id: string;
+  product_name: string;
+  product_category: string;
+  product_type: string;
+  product_tier: string;
+  total_revenue: number;
+  total_mrr: number;
+  total_deals: number;
+  clients_count: number;
 }
 
 export interface RevenueByDate {

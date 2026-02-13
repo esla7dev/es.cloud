@@ -14,7 +14,8 @@ import {
   AnalyticsData,
   CampaignRevenue,
   RevenueByDate,
-  ConversionFunnel
+  ConversionFunnel,
+  ProductRevenueData
 } from '../types/business';
 
 export class BusinessApiService {
@@ -26,7 +27,7 @@ export class BusinessApiService {
         throw new Error('رصيدك غير كافي للبحث. تحتاج إلى رصيد واحد على الأقل.');
       }
 
-      // Call Supabase Edge Function for real Google Places search
+      // Call Supabase Edge Function FIRST — only deduct credits on success
       const { data, error } = await supabase.functions.invoke('google-places-search', {
         body: {
           query: params.keywords,
@@ -43,10 +44,9 @@ export class BusinessApiService {
         throw new Error(`فشل في الاتصال بخدمة البحث: ${error.message}`);
       }
 
-      if (!data?.results) {
+      if (!data?.results || data.results.length === 0) {
         console.warn('No results returned from API');
-        // Still deduct credits even if no results found (API was called)
-        await this.deductCredits(1);
+        // Don't deduct credits if no results found
         return [];
       }
 
@@ -55,7 +55,7 @@ export class BusinessApiService {
       (results as any).pagesProcessed = data.pagesProcessed;
       (results as any).hasMorePages = data.hasMorePages;
       
-      // Deduct credits after successful search
+      // Deduct credits ONLY after successful search with results
       await this.deductCredits(1);
       
       return results;
@@ -1094,18 +1094,31 @@ export class BusinessApiService {
   }
 
   // Product Management Methods
-  static async getProducts(): Promise<Product[]> {
+  static async getProducts(filters?: { category?: string; activeOnly?: boolean }): Promise<Product[]> {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('products')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('display_order', { ascending: true });
+
+      if (filters?.category) {
+        query = query.eq('category', filters.category);
+      }
+
+      if (filters?.activeOnly) {
+        query = query.eq('is_active', true);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         throw new Error('فشل في تحميل المنتجات');
       }
 
-      return data || [];
+      return (data || []).map(p => ({
+        ...p,
+        features: p.features || []
+      }));
     } catch (error) {
       console.error('Get products error:', error);
       throw error;
@@ -1117,6 +1130,13 @@ export class BusinessApiService {
     description?: string;
     price_credits: number;
     type: string;
+    category?: 'web_dev' | 'marketing' | 'arch_studio';
+    image_url?: string;
+    features?: string[];
+    is_active?: boolean;
+    display_order?: number;
+    price_display?: string;
+    tier?: 'basic' | 'pro' | 'enterprise';
   }): Promise<string> {
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -1151,6 +1171,13 @@ export class BusinessApiService {
       description?: string;
       price_credits?: number;
       type?: string;
+      category?: 'web_dev' | 'marketing' | 'arch_studio';
+      image_url?: string;
+      features?: string[];
+      is_active?: boolean;
+      display_order?: number;
+      price_display?: string;
+      tier?: 'basic' | 'pro' | 'enterprise';
     }
   ): Promise<void> {
     try {
@@ -1183,6 +1210,74 @@ export class BusinessApiService {
       }
     } catch (error) {
       console.error('Delete product error:', error);
+      throw error;
+    }
+  }
+
+  static async uploadProductImage(file: File): Promise<string> {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `products/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        throw new Error('فشل في رفع الصورة');
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(filePath);
+
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error('Upload product image error:', error);
+      throw error;
+    }
+  }
+
+  static async deleteProductImage(imageUrl: string): Promise<void> {
+    try {
+      // Extract file path from URL
+      const urlParts = imageUrl.split('/product-images/');
+      if (urlParts.length < 2) return;
+      
+      const filePath = urlParts[1];
+      await supabase.storage
+        .from('product-images')
+        .remove([filePath]);
+    } catch (error) {
+      console.error('Delete product image error:', error);
+      // Don't throw - image deletion failure is not critical
+    }
+  }
+
+  static async getRevenueByProduct(dateFrom?: string, dateTo?: string): Promise<ProductRevenueData[]> {
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) {
+        throw new Error('المستخدم غير مسجل الدخول');
+      }
+
+      const { data, error } = await supabase.rpc('get_revenue_by_product', {
+        p_user_id: userData.user.id,
+        p_date_from: dateFrom || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        p_date_to: dateTo || new Date().toISOString()
+      });
+
+      if (error) {
+        throw new Error('فشل في تحميل تحليلات المنتجات');
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Get revenue by product error:', error);
       throw error;
     }
   }

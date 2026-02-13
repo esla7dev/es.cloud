@@ -387,7 +387,7 @@ export default function MessageTemplatesPanel() {
                     dir="rtl"
                   />
                   <p className="text-xs text-gray-500 mt-1 text-right">
-                    يمكنك استخدام المتغيرات: {'{businessName}'}, {'{companyName}'}, {'{senderName}'}
+                    يمكنك استخدام المتغيرات: {'{businessName}'}, {'{companyName}'}, {'{senderName}'}, {'{productName}'}, {'{productPrice}'}, {'{productFeatures}'}
                   </p>
                 </div>
               </div>

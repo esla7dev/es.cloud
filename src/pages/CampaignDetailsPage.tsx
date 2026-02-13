@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Campaign, CampaignBusinessInteraction, MessageTemplate } from '../types/business';
+import { Campaign, CampaignBusinessInteraction, MessageTemplate, BusinessTag, Task, Product } from '../types/business';
 import { BusinessApiService } from '../services/businessApi';
+import BusinessNotesModal from '../components/BusinessNotesModal';
 import { 
   ArrowLeft,
   User, 
@@ -27,7 +28,13 @@ import {
   Filter,
   Save,
   X,
-  Edit3
+  Edit3,
+  StickyNote,
+  Tag,
+  ListTodo,
+  Plus,
+  ChevronDown,
+  Package
 } from 'lucide-react';
 import { formatArabicDate, formatArabicNumber } from '../utils/arabicHelpers';
 
@@ -65,12 +72,42 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
   const [editingFinancials, setEditingFinancials] = useState<{ [key: string]: boolean }>({});
   const [financialValues, setFinancialValues] = useState<{ [key: string]: { mrr: string; deal: string } }>({});
 
+  // Notes modal state
+  const [notesModalOpen, setNotesModalOpen] = useState(false);
+  const [notesBusinessId, setNotesBusinessId] = useState('');
+  const [notesBusinessName, setNotesBusinessName] = useState('');
+
+  // Tags state
+  const [availableTags, setAvailableTags] = useState<BusinessTag[]>([]);
+  const [businessTagsMap, setBusinessTagsMap] = useState<{ [key: string]: BusinessTag[] }>({});
+  const [showTagDropdown, setShowTagDropdown] = useState<string | null>(null);
+
+  // Tasks state
+  const [interactionTasksMap, setInteractionTasksMap] = useState<{ [key: string]: Task[] }>({});
+  const [showTaskForm, setShowTaskForm] = useState<string | null>(null);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
+
+  // Products state
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  
+  // Client acquired modal state
+  const [showAcquiredModal, setShowAcquiredModal] = useState(false);
+  const [acquiredInteraction, setAcquiredInteraction] = useState<CampaignBusinessInteraction | null>(null);
+  const [acquiredProductId, setAcquiredProductId] = useState('');
+  const [acquiredMrr, setAcquiredMrr] = useState('');
+  const [acquiredDeal, setAcquiredDeal] = useState('');
+
   useEffect(() => {
     if (campaignId) {
       loadCampaign();
       loadInteractions();
       loadTemplates();
       loadUserProfile();
+      loadAvailableTags();
+      loadProducts();
     }
   }, [campaignId]);
 
@@ -120,6 +157,10 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
         };
       });
       setFinancialValues(initialFinancials);
+
+      // Load tags and tasks for all interactions
+      await loadBusinessTags(data);
+      await loadInteractionTasks();
     } catch (error) {
       console.error('CampaignDetailsPage: Failed to load campaign interactions:', error);
     } finally {
@@ -134,6 +175,173 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
     } catch (error) {
       console.error('CampaignDetailsPage: Failed to load templates:', error);
     }
+  };
+
+  const loadAvailableTags = async () => {
+    try {
+      const tags = await BusinessApiService.getBusinessTags();
+      setAvailableTags(tags);
+    } catch (error) {
+      console.error('Failed to load tags:', error);
+    }
+  };
+
+  const loadBusinessTags = async (interactionsData: CampaignBusinessInteraction[]) => {
+    try {
+      const tagsMap: { [key: string]: BusinessTag[] } = {};
+      const promises = interactionsData.map(async (interaction) => {
+        if (interaction.business_result_id) {
+          try {
+            const tags = await BusinessApiService.getBusinessResultTags(interaction.business_result_id);
+            tagsMap[interaction.business_result_id] = tags;
+          } catch {
+            tagsMap[interaction.business_result_id] = [];
+          }
+        }
+      });
+      await Promise.all(promises);
+      setBusinessTagsMap(tagsMap);
+    } catch (error) {
+      console.error('Failed to load business tags:', error);
+    }
+  };
+
+  const loadInteractionTasks = async () => {
+    try {
+      const allTasks = await BusinessApiService.getTasks();
+      const tasksMap: { [key: string]: Task[] } = {};
+      allTasks.forEach(task => {
+        if (task.interaction_id) {
+          if (!tasksMap[task.interaction_id]) {
+            tasksMap[task.interaction_id] = [];
+          }
+          tasksMap[task.interaction_id].push(task);
+        }
+      });
+      setInteractionTasksMap(tasksMap);
+    } catch (error) {
+      console.error('Failed to load tasks:', error);
+    }
+  };
+
+  const loadProducts = async () => {
+    try {
+      const productsData = await BusinessApiService.getProducts({ activeOnly: true });
+      setProducts(productsData);
+    } catch (error) {
+      console.error('Failed to load products:', error);
+    }
+  };
+
+  const handleOpenNotes = (businessResultId: string, businessName: string) => {
+    setNotesBusinessId(businessResultId);
+    setNotesBusinessName(businessName);
+    setNotesModalOpen(true);
+  };
+
+  const handleToggleTag = async (businessResultId: string, tagId: string) => {
+    const currentTags = businessTagsMap[businessResultId] || [];
+    const hasTag = currentTags.some(t => t.id === tagId);
+    
+    let newTagIds: string[];
+    if (hasTag) {
+      newTagIds = currentTags.filter(t => t.id !== tagId).map(t => t.id);
+    } else {
+      newTagIds = [...currentTags.map(t => t.id), tagId];
+    }
+
+    try {
+      await BusinessApiService.assignTagsToBusinessResult(businessResultId, newTagIds);
+      const newTags = availableTags.filter(t => newTagIds.includes(t.id));
+      setBusinessTagsMap(prev => ({ ...prev, [businessResultId]: newTags }));
+    } catch (error) {
+      console.error('Failed to toggle tag:', error);
+      toast.error('فشل في تحديث الوسوم');
+    }
+    setShowTagDropdown(null);
+  };
+
+  const handleCreateTask = async (interactionId: string) => {
+    if (!newTaskTitle.trim()) {
+      toast.error('عنوان المهمة مطلوب');
+      return;
+    }
+
+    try {
+      await BusinessApiService.createTask({
+        title: newTaskTitle.trim(),
+        due_date: newTaskDueDate || undefined,
+        priority: newTaskPriority,
+        interaction_id: interactionId
+      });
+      setNewTaskTitle('');
+      setNewTaskDueDate('');
+      setNewTaskPriority('medium');
+      setShowTaskForm(null);
+      await loadInteractionTasks();
+      toast.success('تم إنشاء المهمة بنجاح');
+    } catch (error) {
+      console.error('Failed to create task:', error);
+      toast.error('فشل في إنشاء المهمة');
+    }
+  };
+
+  const handleToggleTaskComplete = async (taskId: string, completed: boolean) => {
+    try {
+      await BusinessApiService.updateTaskStatus(taskId, !completed);
+      await loadInteractionTasks();
+    } catch (error) {
+      console.error('Failed to toggle task:', error);
+    }
+  };
+
+  const handleClientAcquired = (interaction: CampaignBusinessInteraction) => {
+    setAcquiredInteraction(interaction);
+    setAcquiredProductId(interaction.product_id || '');
+    setAcquiredMrr(interaction.mrr_value?.toString() || '');
+    setAcquiredDeal(interaction.one_time_deal_value?.toString() || '');
+    setShowAcquiredModal(true);
+  };
+
+  const handleConfirmAcquired = async () => {
+    if (!acquiredInteraction) return;
+
+    const product = acquiredProductId ? products.find(p => p.id === acquiredProductId) : null;
+    
+    const updates: any = {
+      status: 'client_acquired' as const,
+      last_action: 'تم اكتساب العميل'
+    };
+
+    if (acquiredProductId) updates.product_id = acquiredProductId;
+    if (acquiredMrr) updates.mrr_value = parseFloat(acquiredMrr) || 0;
+    if (acquiredDeal) updates.one_time_deal_value = parseFloat(acquiredDeal) || 0;
+
+    if (product && !acquiredMrr && !acquiredDeal) {
+      updates.one_time_deal_value = product.price_credits;
+    }
+
+    await handleUpdateInteraction(acquiredInteraction.id, updates);
+    setShowAcquiredModal(false);
+    setAcquiredInteraction(null);
+    toast.success('تم اكتساب العميل بنجاح! 🎉');
+  };
+
+  const getCategoryLabel = (category: string) => {
+    switch (category) {
+      case 'web_dev': return 'تطوير الويب';
+      case 'marketing': return 'التسويق';
+      case 'arch_studio': return 'الهندسة والتصميم';
+      default: return category;
+    }
+  };
+
+  const getTaskStats = (interactionId: string) => {
+    const tasks = interactionTasksMap[interactionId] || [];
+    const total = tasks.length;
+    const overdue = tasks.filter(t => !t.completed && t.due_date && new Date(t.due_date) < new Date()).length;
+    const pending = tasks.filter(t => !t.completed).length;
+    return { total, overdue, pending };
   };
 
   const handleSendOfferMessage = (interaction: CampaignBusinessInteraction) => {
@@ -157,7 +365,9 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
       return;
     }
     
-    const processedMessage = BusinessApiService.processMessageTemplate(
+    const selectedProduct = selectedProductId ? products.find(p => p.id === selectedProductId) : null;
+
+    let processedMessage = BusinessApiService.processMessageTemplate(
       offerTemplate,
       interaction.business_result?.name || '',
       {
@@ -165,6 +375,13 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
         senderName: senderName || userProfile?.sender_name || 'فريق المبيعات'
       }
     );
+
+    if (selectedProduct) {
+      processedMessage = processedMessage
+        .replace(/\{productName\}/g, selectedProduct.name)
+        .replace(/\{productPrice\}/g, selectedProduct.price_display || `${selectedProduct.price_credits}`)
+        .replace(/\{productFeatures\}/g, (selectedProduct.features || []).join('، '));
+    }
 
     const whatsappLink = BusinessApiService.generateWhatsAppLink(
       interaction.business_result.phone,
@@ -176,7 +393,8 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
 
     handleUpdateInteraction(interaction.id, {
       status: 'sent',
-      last_action: 'تم إرسال عرض عبر واتساب'
+      last_action: 'تم إرسال عرض عبر واتساب',
+      product_id: selectedProductId || undefined
     });
   };
 
@@ -213,7 +431,7 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
     if (templateId && selectedBusiness) {
       const template = templates.find(t => t.id === templateId);
       if (template) {
-        const processedMessage = BusinessApiService.processMessageTemplate(
+        let processedMessage = BusinessApiService.processMessageTemplate(
           template,
           selectedBusiness.business_result?.name || '',
           {
@@ -221,6 +439,13 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
             senderName: senderName || 'فريق المبيعات'
           }
         );
+        const selectedProduct = selectedProductId ? products.find(p => p.id === selectedProductId) : null;
+        if (selectedProduct) {
+          processedMessage = processedMessage
+            .replace(/\{productName\}/g, selectedProduct.name)
+            .replace(/\{productPrice\}/g, selectedProduct.price_display || `${selectedProduct.price_credits}`)
+            .replace(/\{productFeatures\}/g, (selectedProduct.features || []).join('، '));
+        }
         setMessagePreview(processedMessage);
         setCustomMessage(processedMessage);
       }
@@ -251,7 +476,8 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
       
     handleUpdateInteraction(selectedBusiness.id, {
       status: 'sent',
-      last_action: actionMessage
+      last_action: actionMessage,
+      product_id: selectedProductId || undefined
     });
 
     setShowWhatsAppModal(false);
@@ -265,6 +491,7 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
       last_action?: string;
       mrr_value?: number;
       one_time_deal_value?: number;
+      product_id?: string;
     }
   ) => {
     setUpdateLoading(interactionId);
@@ -628,7 +855,7 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
                     </div>
 
                     {/* Business Info */}
-                    <div className="col-span-5">
+                    <div className="col-span-4">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusColor(interaction.status)}`}>
@@ -688,6 +915,117 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
                           </div>
                         )}
                       </div>
+
+                      {/* Tags */}
+                      {interaction.business_result_id && (
+                        <div className="flex flex-wrap gap-1 mt-2 items-center justify-end">
+                          {(businessTagsMap[interaction.business_result_id] || []).map(tag => (
+                            <span key={tag.id} className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: tag.color + '30', color: tag.color }}>
+                              {tag.name}
+                            </span>
+                          ))}
+                          <div className="relative">
+                            <button
+                              onClick={() => setShowTagDropdown(showTagDropdown === interaction.id ? null : interaction.id)}
+                              className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600"
+                              title="إضافة وسم"
+                            >
+                              <Tag className="w-3 h-3" />
+                            </button>
+                            {showTagDropdown === interaction.id && (
+                              <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[150px]">
+                                {availableTags.map(tag => {
+                                  const hasTag = (businessTagsMap[interaction.business_result_id!] || []).some(t => t.id === tag.id);
+                                  return (
+                                    <button
+                                      key={tag.id}
+                                      onClick={() => handleToggleTag(interaction.business_result_id!, tag.id)}
+                                      className={`w-full px-3 py-1.5 text-xs text-right hover:bg-gray-50 flex items-center gap-2 justify-end ${hasTag ? 'bg-blue-50' : ''}`}
+                                    >
+                                      <span>{tag.name}</span>
+                                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                                    </button>
+                                  );
+                                })}
+                                {availableTags.length === 0 && (
+                                  <div className="px-3 py-2 text-xs text-gray-500 text-right">لا توجد وسوم</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CRM Quick Actions */}
+                      <div className="flex items-center gap-1 mt-2 justify-end">
+                        {interaction.business_result_id && (
+                          <button
+                            onClick={() => handleOpenNotes(interaction.business_result_id!, interaction.business_result?.name || '')}
+                            className="p-1 hover:bg-yellow-50 rounded text-gray-400 hover:text-yellow-600 transition-colors"
+                            title="ملاحظات"
+                          >
+                            <StickyNote className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <div className="relative">
+                          <button
+                            onClick={() => setShowTaskForm(showTaskForm === interaction.id ? null : interaction.id)}
+                            className="p-1 hover:bg-indigo-50 rounded text-gray-400 hover:text-indigo-600 transition-colors flex items-center gap-0.5"
+                            title="مهام"
+                          >
+                            <ListTodo className="w-3.5 h-3.5" />
+                            {getTaskStats(interaction.id).total > 0 && (
+                              <span className={`text-[10px] font-bold ${getTaskStats(interaction.id).overdue > 0 ? 'text-red-600' : 'text-indigo-600'}`}>
+                                {formatArabicNumber(getTaskStats(interaction.id).pending)}
+                              </span>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Inline Task Form & List */}
+                      {showTaskForm === interaction.id && (
+                        <div className="mt-2 bg-indigo-50 rounded-lg p-2 space-y-2">
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={newTaskTitle}
+                              onChange={(e) => setNewTaskTitle(e.target.value)}
+                              placeholder="عنوان المهمة..."
+                              className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded text-right"
+                              dir="rtl"
+                            />
+                            <input
+                              type="date"
+                              value={newTaskDueDate}
+                              onChange={(e) => setNewTaskDueDate(e.target.value)}
+                              className="px-1 py-1 text-xs border border-gray-300 rounded w-28"
+                            />
+                            <button
+                              onClick={() => handleCreateTask(interaction.id)}
+                              className="px-2 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                          {(interactionTasksMap[interaction.id] || []).map(task => (
+                            <div key={task.id} className="flex items-center gap-1 text-xs">
+                              <input
+                                type="checkbox"
+                                checked={task.completed}
+                                onChange={() => handleToggleTaskComplete(task.id, task.completed)}
+                                className="rounded"
+                              />
+                              <span className={`flex-1 text-right ${task.completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                                {task.title}
+                              </span>
+                              {task.due_date && new Date(task.due_date) < new Date() && !task.completed && (
+                                <span className="text-red-500 text-[10px]">متأخر</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
                       {interaction.last_action && (
                         <div className="text-right text-xs text-gray-500 mt-2" dir="rtl">
@@ -752,10 +1090,7 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
                         {interaction.status === 'in_progress' && (
                           <>
                             <button
-                              onClick={() => handleUpdateInteraction(interaction.id, { 
-                                status: 'client_acquired', 
-                                last_action: 'تم اكتساب العميل' 
-                              })}
+                              onClick={() => handleClientAcquired(interaction)}
                               disabled={updateLoading === interaction.id}
                               className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors disabled:opacity-50"
                             >
@@ -777,7 +1112,7 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
                     </div>
 
                     {/* Financial Values */}
-                    <div className="col-span-3">
+                    <div className="col-span-4">
                       {editingFinancials[interaction.id] ? (
                         <div className="space-y-2">
                           <div>
@@ -941,6 +1276,31 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
                   </select>
                 </div>
 
+                {/* Product Selection */}
+                {products.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 text-right">
+                      <Package className="w-4 h-4 inline-block ml-1" />
+                      ربط بمنتج/خدمة (اختياري)
+                    </label>
+                    <select
+                      value={selectedProductId}
+                      onChange={(e) => {
+                        setSelectedProductId(e.target.value);
+                        if (selectedTemplate) handleTemplateChange(selectedTemplate);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-right"
+                    >
+                      <option value="">بدون منتج</option>
+                      {products.map(product => (
+                        <option key={product.id} value={product.id}>
+                          {product.name} — {getCategoryLabel(product.category || '')} {product.tier ? `(${product.tier})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {/* Message Content */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2 text-right">
@@ -997,6 +1357,94 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
             </div>
           </div>
         </div>
+      )}
+
+      {/* Client Acquired Modal */}
+      {showAcquiredModal && acquiredInteraction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-md">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <button onClick={() => setShowAcquiredModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+                <h3 className="text-lg font-semibold text-gray-900">اكتساب العميل 🎉</h3>
+              </div>
+              <p className="text-sm text-gray-600 text-right mt-2" dir="rtl">
+                {acquiredInteraction.business_result?.name}
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              {products.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 text-right">
+                    <Package className="w-4 h-4 inline-block ml-1" />
+                    المنتج/الخدمة المباعة
+                  </label>
+                  <select
+                    value={acquiredProductId}
+                    onChange={(e) => {
+                      setAcquiredProductId(e.target.value);
+                      const p = products.find(pr => pr.id === e.target.value);
+                      if (p && !acquiredDeal && !acquiredMrr) {
+                        setAcquiredDeal(p.price_credits.toString());
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-right"
+                  >
+                    <option value="">اختر منتج...</option>
+                    {products.map(product => (
+                      <option key={product.id} value={product.id}>
+                        {product.name} — {getCategoryLabel(product.category || '')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 text-right">MRR شهري (ريال)</label>
+                <input
+                  type="number"
+                  value={acquiredMrr}
+                  onChange={(e) => setAcquiredMrr(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-right"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 text-right">قيمة الصفقة (ريال)</label>
+                <input
+                  type="number"
+                  value={acquiredDeal}
+                  onChange={(e) => setAcquiredDeal(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-right"
+                  placeholder="0"
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-200 flex items-center gap-3 justify-start">
+              <button onClick={() => setShowAcquiredModal(false)} className="px-4 py-2 text-gray-600 hover:text-gray-800">
+                إلغاء
+              </button>
+              <button
+                onClick={handleConfirmAcquired}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                تأكيد الاكتساب
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Business Notes Modal */}
+      {notesModalOpen && notesBusinessId && (
+        <BusinessNotesModal
+          isOpen={notesModalOpen}
+          onClose={() => setNotesModalOpen(false)}
+          businessResultId={notesBusinessId}
+          businessName={notesBusinessName}
+        />
       )}
     </div>
   );

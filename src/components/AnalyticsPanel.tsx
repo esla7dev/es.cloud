@@ -1,18 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, DollarSign, Target, Users, Download, Calendar } from 'lucide-react';
+import { TrendingUp, DollarSign, Target, Users, Download, Calendar, Package } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { BusinessApiService } from '../services/businessApi';
-import type { AnalyticsData, CampaignRevenue, RevenueByDate, ConversionFunnel } from '../types/business';
+import type { AnalyticsData, CampaignRevenue, RevenueByDate, ConversionFunnel, ProductRevenueData } from '../types/business';
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  'web_dev': '#3b82f6',
+  'marketing': '#10b981',
+  'arch_studio': '#8b5cf6'
+};
+
+const getCategoryLabel = (category: string) => {
+  switch (category) {
+    case 'web_dev': return 'تطوير الويب';
+    case 'marketing': return 'التسويق';
+    case 'arch_studio': return 'الهندسة والتصميم';
+    default: return category;
+  }
+};
 
 export default function AnalyticsPanel() {
   const [loading, setLoading] = useState(true);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [campaignRevenue, setCampaignRevenue] = useState<CampaignRevenue[]>([]);
   const [revenueByDate, setRevenueByDate] = useState<RevenueByDate[]>([]);
+  const [productRevenue, setProductRevenue] = useState<ProductRevenueData[]>([]);
   const [dateRange, setDateRange] = useState({
     startDate: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
     endDate: format(new Date(), 'yyyy-MM-dd')
@@ -26,15 +42,17 @@ export default function AnalyticsPanel() {
     try {
       setLoading(true);
       
-      const [analyticsData, campaignData, revenueData] = await Promise.all([
+      const [analyticsData, campaignData, revenueData, productRevenueData] = await Promise.all([
         BusinessApiService.getAnalytics(dateRange.startDate, dateRange.endDate),
         BusinessApiService.getCampaignRevenueAnalytics(),
-        BusinessApiService.getRevenueByDate(dateRange.startDate, dateRange.endDate)
+        BusinessApiService.getRevenueByDate(dateRange.startDate, dateRange.endDate),
+        BusinessApiService.getRevenueByProduct(dateRange.startDate, dateRange.endDate)
       ]);
 
       setAnalytics(analyticsData);
       setCampaignRevenue(campaignData);
       setRevenueByDate(revenueData);
+      setProductRevenue(productRevenueData);
     } catch (error) {
       console.error('Error loading analytics:', error);
     } finally {
@@ -224,6 +242,83 @@ export default function AnalyticsPanel() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Revenue by Product */}
+      {productRevenue.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Package className="w-5 h-5 text-orange-600" />
+            إيرادات المنتجات والخدمات
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={productRevenue} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" />
+                <YAxis 
+                  dataKey="product_name" 
+                  type="category" 
+                  width={150}
+                  tick={{ fontSize: 12 }}
+                />
+                <Tooltip formatter={(value: number) => `${value.toLocaleString()} ريال`} />
+                <Legend />
+                <Bar dataKey="total_revenue" fill="#f59e0b" name="إجمالي الإيرادات" />
+                <Bar dataKey="total_mrr" fill="#10b981" name="MRR" />
+              </BarChart>
+            </ResponsiveContainer>
+
+            {/* Revenue by Category Summary */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-900">حسب القسم</h3>
+              {(() => {
+                const categoryTotals: Record<string, { revenue: number; clients: number }> = {};
+                productRevenue.forEach(pr => {
+                  const cat = pr.category || 'other';
+                  if (!categoryTotals[cat]) categoryTotals[cat] = { revenue: 0, clients: 0 };
+                  categoryTotals[cat].revenue += pr.total_revenue;
+                  categoryTotals[cat].clients += pr.client_count;
+                });
+                return Object.entries(categoryTotals).map(([cat, data]) => (
+                  <div key={cat} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: (CATEGORY_COLORS[cat] || '#6b7280') + '15' }}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-semibold" style={{ color: CATEGORY_COLORS[cat] || '#6b7280' }}>
+                        {data.revenue.toLocaleString()} ريال
+                      </span>
+                      <span className="text-xs text-gray-500">({data.clients} عميل)</span>
+                    </div>
+                    <span className="text-sm font-medium text-gray-700">{getCategoryLabel(cat)}</span>
+                  </div>
+                ));
+              })()}
+
+              {/* Top Products List */}
+              <h3 className="font-semibold text-gray-900 mt-4">أعلى المنتجات</h3>
+              {productRevenue
+                .sort((a, b) => b.total_revenue - a.total_revenue)
+                .slice(0, 5)
+                .map((pr, i) => (
+                  <div key={pr.product_id || i} className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-900">
+                        {pr.total_revenue.toLocaleString()} ريال
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm text-gray-700">{pr.product_name}</span>
+                      {pr.category && (
+                        <span className="text-xs text-gray-400 mr-2">
+                          ({getCategoryLabel(pr.category)})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Conversion Funnel */}
       <div className="bg-white rounded-lg shadow-sm p-6">
