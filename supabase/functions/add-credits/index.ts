@@ -1,0 +1,112 @@
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
+};
+
+interface AddCreditsRequest {
+  target_user_id: string;
+  amount: number;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders,
+    });
+  }
+
+  try {
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error('No authorization header');
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      throw new Error('Invalid authentication');
+    }
+
+    const { data: currentUserProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profileError || !currentUserProfile) {
+      throw new Error('Failed to fetch user profile');
+    }
+
+    if (currentUserProfile.role !== 'owner') {
+      throw new Error('Unauthorized: Only owners can add credits');
+    }
+
+    const { target_user_id, amount }: AddCreditsRequest = await req.json();
+
+    if (!target_user_id || typeof amount !== 'number') {
+      throw new Error('Invalid input: target_user_id and amount are required');
+    }
+
+    if (amount <= 0) {
+      throw new Error('Amount must be positive');
+    }
+
+    const { data: targetUser, error: targetUserError } = await supabase
+      .from('profiles')
+      .select('id, credits')
+      .eq('id', target_user_id)
+      .maybeSingle();
+
+    if (targetUserError || !targetUser) {
+      throw new Error('Target user not found');
+    }
+
+    const newCredits = targetUser.credits + amount;
+    
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ 
+        credits: newCredits,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', target_user_id);
+
+    if (updateError) {
+      throw new Error('Failed to update user credits');
+    }
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        message: `Successfully added ${amount} credits to user`,
+        new_balance: newCredits
+      }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
+    );
+
+  } catch (error) {
+    console.error('Error in add-credits function:', error);
+    
+    return new Response(
+      JSON.stringify({ 
+        error: error.message || 'Internal server error'
+      }),
+      { 
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
+    );
+  }
+});
