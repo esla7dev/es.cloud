@@ -76,6 +76,8 @@ export default function AnalyticsPanel() {
     { name: 'مفقود/مرفوض', value: analytics.conversion_funnel.lost_rejected }
   ] : [];
 
+  const safeConversionRate = Number(analytics?.conversion_rate ?? 0);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -175,7 +177,7 @@ export default function AnalyticsPanel() {
               <div>
                 <p className="text-sm text-gray-600">معدل التحويل</p>
                 <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {analytics.conversion_rate.toFixed(1)}%
+                  {safeConversionRate.toFixed(1)}%
                 </p>
               </div>
               <div className="p-3 bg-purple-100 rounded-lg">

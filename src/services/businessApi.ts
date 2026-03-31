@@ -18,8 +18,14 @@ import {
   ProductRevenueData
 } from '../types/business';
 
+export interface SearchResponse {
+  results: SearchResult[];
+  pagesProcessed?: number;
+  hasMorePages?: boolean;
+}
+
 export class BusinessApiService {
-  static async searchBusinesses(params: SearchParams): Promise<SearchResult[]> {
+  static async searchBusinesses(params: SearchParams): Promise<SearchResponse> {
     try {
       // Check if user has enough credits before searching
       const profile = await this.getUserProfile();
@@ -47,18 +53,17 @@ export class BusinessApiService {
       if (!data?.results || data.results.length === 0) {
         console.warn('No results returned from API');
         // Don't deduct credits if no results found
-        return [];
+        return { results: [] };
       }
 
-      // Add metadata to results for pagination info
-      const results = data.results;
-      (results as any).pagesProcessed = data.pagesProcessed;
-      (results as any).hasMorePages = data.hasMorePages;
-      
       // Deduct credits ONLY after successful search with results
       await this.deductCredits(1);
-      
-      return results;
+
+      return {
+        results: data.results as SearchResult[],
+        pagesProcessed: data.pagesProcessed,
+        hasMorePages: data.hasMorePages,
+      };
     } catch (error) {
       console.error('Business search error:', error);
       // Re-throw the error to be handled by the calling component
@@ -205,28 +210,13 @@ export class BusinessApiService {
 
           if (insertError) {
             console.error('Profile creation error:', insertError);
-            // Return a default profile object if creation fails
-            return {
-              id: userData.user.id,
-              email: userData.user.email || '',
-             credits: 50,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              role: 'user' as const
-            };
+            throw new Error('فشل في إنشاء بيانات المستخدم. يرجى المحاولة مجددًا.');
           }
 
           return newProfile;
         } catch (createError) {
           console.error('Failed to create profile:', createError);
-          // Return a default profile object as fallback
-          return {
-            id: userData.user.id,
-            email: userData.user.email || '',
-           credits: 50,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
+          throw new Error('فشل في إنشاء بيانات المستخدم. يرجى المحاولة مجددًا.');
         }
       }
 
@@ -234,21 +224,7 @@ export class BusinessApiService {
       throw new Error('فشل في تحميل بيانات المستخدم');
     } catch (error) {
       console.error('Get user profile error:', error);
-      // Return a default profile as final fallback
-      const { data: userData } = await supabase.auth.getUser();
-      return {
-        id: userData.user?.id || '',
-        email: userData.user?.email || '',
-       credits: 50,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        company_name: null,
-        sender_name: null,
-        phone: null,
-        address: null,
-        website: null,
-        role: 'user' as const
-      };
+      throw error;
     }
   }
 
@@ -1713,7 +1689,7 @@ export class BusinessApiService {
       // Fetch conversion funnel data from interactions
       const conversionFunnel = await this.getConversionFunnel(userData.user.id);
 
-      const baseData = data[0] || {
+      const rawBaseData = data[0] || {
         total_revenue: 0,
         total_mrr: 0,
         total_deals: 0,
@@ -1723,6 +1699,18 @@ export class BusinessApiService {
         avg_deal_size: 0,
         campaigns_count: 0,
         active_campaigns_count: 0
+      };
+
+      const baseData = {
+        total_revenue: rawBaseData.total_revenue ?? 0,
+        total_mrr: rawBaseData.total_mrr ?? 0,
+        total_deals: rawBaseData.total_deals ?? 0,
+        clients_acquired: rawBaseData.clients_acquired ?? 0,
+        total_contacted: rawBaseData.total_contacted ?? 0,
+        conversion_rate: rawBaseData.conversion_rate ?? 0,
+        avg_deal_size: rawBaseData.avg_deal_size ?? 0,
+        campaigns_count: rawBaseData.campaigns_count ?? 0,
+        active_campaigns_count: rawBaseData.active_campaigns_count ?? 0
       };
 
       return {

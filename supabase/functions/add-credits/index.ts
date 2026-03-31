@@ -61,35 +61,21 @@ Deno.serve(async (req: Request) => {
       throw new Error('Amount must be positive');
     }
 
-    const { data: targetUser, error: targetUserError } = await supabase
-      .from('profiles')
-      .select('id, credits')
-      .eq('id', target_user_id)
-      .maybeSingle();
+    // Use atomic RPC so concurrent calls cannot double-credit the same account.
+    const { data: newBalance, error: rpcError } = await supabase.rpc('add_user_credits', {
+      p_target_user_id: target_user_id,
+      p_amount: amount
+    });
 
-    if (targetUserError || !targetUser) {
-      throw new Error('Target user not found');
-    }
-
-    const newCredits = targetUser.credits + amount;
-    
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ 
-        credits: newCredits,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', target_user_id);
-
-    if (updateError) {
-      throw new Error('Failed to update user credits');
+    if (rpcError) {
+      throw new Error(rpcError.message || 'Failed to update user credits');
     }
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: `Successfully added ${amount} credits to user`,
-        new_balance: newCredits
+        new_balance: newBalance
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

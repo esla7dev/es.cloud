@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import { Toaster, toast } from 'react-hot-toast';
 import { supabase } from './lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { SearchParams, SearchResult, Search } from './types/business';
@@ -32,6 +32,7 @@ import TasksPanel from './components/TasksPanel';
 import TagsManager from './components/TagsManager';
 import CampaignDetailsPage from './pages/CampaignDetailsPage';
 import OwnerPanel from './components/OwnerPanel';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -95,7 +96,13 @@ function App() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    window.location.reload();
+    // onAuthStateChange will set user → null, triggering re-render to AuthForm.
+    // Clear local state so stale data is not visible if the listener fires late.
+    setSearchResults([]);
+    setSearchMetadata({});
+    setUserEmail('');
+    setUserCredits(0);
+    setUserRole('user');
   };
 
   const mobileMenuItems = [
@@ -115,31 +122,26 @@ function App() {
 
     try {
       // Search using real Google Places API (credits are deducted inside this function)
-      const results = await BusinessApiService.searchBusinesses(params);
-      
+      const { results, pagesProcessed, hasMorePages } = await BusinessApiService.searchBusinesses(params);
+
       // Save search to database and set results
       if (results.length > 0) {
         await BusinessApiService.saveSearch(params, results);
       }
-      
+
       setSearchResults(results);
-      
-      // Set metadata if available
+
       if (results.length > 0) {
-        setSearchMetadata({
-          pagesProcessed: (results as any).pagesProcessed,
-          hasMorePages: (results as any).hasMorePages
-        });
+        setSearchMetadata({ pagesProcessed, hasMorePages });
       }
-      
+
       // Trigger credit refresh in sidebar
       setRefreshCredits(prev => prev + 1);
-      
+
     } catch (error) {
       console.error('Search error:', error);
-      // Show error message to user
       const errorMessage = error instanceof Error ? error.message : 'حدث خطأ غير متوقع';
-      alert(`خطأ في البحث: ${errorMessage}`);
+      toast.error(`خطأ في البحث: ${errorMessage}`);
       setSearchResults([]);
       setSearchMetadata({});
     } finally {
@@ -147,7 +149,7 @@ function App() {
     }
   };
 
-  const handleLoadSearch = (search: any) => {
+  const handleLoadSearch = (search: Search) => {
     setActiveTab('search');
     if (search.business_results) {
       setSearchResults(search.business_results);
@@ -156,55 +158,44 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">جاري التحميل...</p>
+      <ErrorBoundary>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-gray-600">جاري التحميل...</p>
+          </div>
         </div>
-      </div>
+      </ErrorBoundary>
     );
   }
 
+  const toaster = (
+    <Toaster
+      position="top-center"
+      toastOptions={{
+        duration: 4000,
+        style: { background: '#363636', color: '#fff', direction: 'rtl', textAlign: 'right' },
+        success: { duration: 3000, iconTheme: { primary: '#10b981', secondary: '#fff' } },
+        error: { duration: 5000, iconTheme: { primary: '#ef4444', secondary: '#fff' } },
+      }}
+    />
+  );
+
   if (!user) {
     return (
-      <>
-        <Toaster position="top-center" toastOptions={{
-          duration: 4000,
-          style: { background: '#1e293b', color: '#fff', borderRadius: '12px', direction: 'rtl' },
-        }} />
-        <AuthForm onAuthSuccess={loadUserProfile} />
-      </>
+      <ErrorBoundary>
+        <>
+          {toaster}
+          <AuthForm onAuthSuccess={loadUserProfile} />
+        </>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <BrowserRouter>
-      <Toaster 
-        position="top-center"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-            direction: 'rtl',
-            textAlign: 'right'
-          },
-          success: {
-            duration: 3000,
-            iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
-            },
-          },
-          error: {
-            duration: 5000,
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
-            },
-          },
-        }}
-      />
+    <ErrorBoundary>
+      <BrowserRouter>
+      {toaster}
       <div className="min-h-screen bg-gray-50 flex" dir="rtl">
         {/* Mobile Navigation */}
         <MobileNav
@@ -288,6 +279,7 @@ function App() {
         </div>
       </div>
     </BrowserRouter>
+  </ErrorBoundary>
   );
 }
 

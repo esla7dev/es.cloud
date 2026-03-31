@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Campaign, CampaignBusinessInteraction, MessageTemplate, BusinessTag, Task, Product } from '../types/business';
+import { Campaign, CampaignBusinessInteraction, MessageTemplate, BusinessTag, Task, Product, UserProfile } from '../types/business';
+
+type InteractionUpdates = {
+  status?: CampaignBusinessInteraction['status'];
+  last_action?: string;
+  mrr_value?: number;
+  one_time_deal_value?: number;
+  product_id?: string;
+};
 import { BusinessApiService } from '../services/businessApi';
 import BusinessNotesModal from '../components/BusinessNotesModal';
 import { 
@@ -66,7 +74,7 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
   const [messagePreview, setMessagePreview] = useState('');
   const [senderName, setSenderName] = useState('');
   const [companyName, setCompanyName] = useState('');
-  const [userProfile, setUserProfile] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   
   // Financial editing states
   const [editingFinancials, setEditingFinancials] = useState<{ [key: string]: boolean }>({});
@@ -308,8 +316,8 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
 
     const product = acquiredProductId ? products.find(p => p.id === acquiredProductId) : null;
     
-    const updates: any = {
-      status: 'client_acquired' as const,
+    const updates: InteractionUpdates = {
+      status: 'client_acquired',
       last_action: 'تم اكتساب العميل'
     };
 
@@ -542,7 +550,7 @@ export default function CampaignDetailsPage({ setActiveTab }: CampaignDetailsPag
     const values = financialValues[interactionId];
     if (!values) return;
 
-    const updates: any = {};
+    const updates: InteractionUpdates = {};
     if (values.mrr !== '') updates.mrr_value = parseFloat(values.mrr) || 0;
     if (values.deal !== '') updates.one_time_deal_value = parseFloat(values.deal) || 0;
 

@@ -144,6 +144,28 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Verify the caller is an authenticated Supabase user
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
+    const authClient = createClient(supabaseUrl, supabaseAnonKey);
+    const { data: { user }, error: authError } = await authClient.auth.getUser(
+      authHeader.replace('Bearer ', '')
+    );
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const apiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
     if (!apiKey) {
       throw new Error('Google Maps API key not configured');
@@ -163,10 +185,24 @@ Deno.serve(async (req: Request) => {
 
     let searchQuery = query;
     let locationBias = '';
+
+    // Clamp radius to a safe numeric range before use in URL
+    const safeRadius = Math.max(1, Math.min(50000, Math.trunc(Number(radius) || 5000)));
     
     if (coordinates) {
-      locationBias = `&location=${coordinates.lat},${coordinates.lng}&radius=${radius}`;
-      console.log('Using coordinates for location bias:', coordinates);
+      const lat = Number(coordinates.lat);
+      const lng = Number(coordinates.lng);
+      if (
+        !Number.isFinite(lat) || !Number.isFinite(lng) ||
+        lat < -90 || lat > 90 || lng < -180 || lng > 180
+      ) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid coordinates' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      locationBias = `&location=${lat},${lng}&radius=${safeRadius}`;
+      console.log('Using coordinates for location bias:', { lat, lng });
     } else if (placeId) {
       console.log('PlaceId available but no coordinates, using location string:', placeId);
       if (location) {
@@ -179,7 +215,7 @@ Deno.serve(async (req: Request) => {
     let baseUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}${locationBias}&key=${apiKey}`;
     
     if (type && type !== 'all') {
-      baseUrl += `&type=${type}`;
+      baseUrl += `&type=${encodeURIComponent(type)}`;
     }
 
     console.log('Starting paginated search with query:', searchQuery, 'and location bias:', locationBias);
